@@ -34,16 +34,17 @@ app = FastAPI(
 )
 
 app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["http://localhost:5173"],
-        allow_methods=["*"],
-        allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 MLFLOW_EXPERIMENT = "longread_rag_queries"
 
 
 # ── Lazy-load the RAG pipeline (expensive to initialise) ──────────────────────
+
 
 @lru_cache(maxsize=1)
 def get_rag() -> LongReadRAG:
@@ -53,54 +54,58 @@ def get_rag() -> LongReadRAG:
 
 # ── Request / Response schemas ────────────────────────────────────────────────
 
+
 class AskRequest(BaseModel):
-    query: str = Field(..., min_length=5, max_length=500,
-                       example="What are the main error profiles of Oxford Nanopore reads?")
+    query: str = Field(
+        ..., min_length=5, max_length=500, example="What are the main error profiles of Oxford Nanopore reads?"
+    )
     top_k: int = Field(5, ge=1, le=20)
 
 
 class SourceItem(BaseModel):
-    pmid:     str
-    title:    str
-    year:     str
-    authors:  str
-    score:    float
+    pmid: str
+    title: str
+    year: str
+    authors: str
+    score: float
     has_full: bool
 
 
 class AskResponse(BaseModel):
-    query:        str
-    answer:       str
-    sources:      list[SourceItem]
-    latency_ms:   float
+    query: str
+    answer: str
+    sources: list[SourceItem]
+    latency_ms: float
 
 
 class HealthResponse(BaseModel):
-    status:      str
+    status: str
     index_ready: bool
 
 
 class StatsResponse(BaseModel):
-    n_vectors:   int
-    n_chunks:    int
-    index_path:  str
+    n_vectors: int
+    n_chunks: int
+    index_path: str
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @app.get("/health", response_model=HealthResponse)
 def health():
-    index_ready = Path("data/index/index.faiss").exists()
+    index_ready = Path("data/chromadb").exists()
     return HealthResponse(status="ok", index_ready=index_ready)
 
 
 @app.get("/stats", response_model=StatsResponse)
 def stats():
     rag = get_rag()
+    n = rag.collection.count()
     return StatsResponse(
-        n_vectors  = rag.index.ntotal,
-        n_chunks   = len(rag.chunks),
-        index_path = "data/index/",
+        n_vectors=n,
+        n_chunks=n,
+        index_path="data/chromadb/",
     )
 
 
@@ -111,8 +116,8 @@ def ask(request: AskRequest):
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
     with mlflow.start_run():
-        mlflow.log_param("query",  request.query)
-        mlflow.log_param("top_k",  request.top_k)
+        mlflow.log_param("query", request.query)
+        mlflow.log_param("top_k", request.top_k)
 
         t0 = time.perf_counter()
         try:
@@ -125,20 +130,20 @@ def ask(request: AskRequest):
 
         latency_ms = (time.perf_counter() - t0) * 1000
         mlflow.log_metric("latency_ms", latency_ms)
-        mlflow.log_metric("n_sources",  len(response.sources))
+        mlflow.log_metric("n_sources", len(response.sources))
 
     return AskResponse(
-        query      = response.query,
-        answer     = response.answer,
-        latency_ms = round(latency_ms, 1),
-        sources    = [
+        query=response.query,
+        answer=response.answer,
+        latency_ms=round(latency_ms, 1),
+        sources=[
             SourceItem(
-                pmid     = s.pmid,
-                title    = s.title,
-                year     = s.year,
-                authors  = s.authors,
-                score    = round(s.score, 4),
-                has_full = s.has_full,
+                pmid=s.pmid,
+                title=s.title,
+                year=s.year,
+                authors=s.authors,
+                score=round(s.score, 4),
+                has_full=s.has_full,
             )
             for s in response.sources
         ],

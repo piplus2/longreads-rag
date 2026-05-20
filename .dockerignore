@@ -1,0 +1,8 @@
+.git
+frontend/node_modules
+mlruns
+mlflow.db
+data/chromadb
+__pycache__
+**/__pycache__
+*.pyc

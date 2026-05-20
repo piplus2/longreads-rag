@@ -8,7 +8,6 @@ Can be used as a library or called directly:
     python -m src.rag --query "What are the main errors in nanopore sequencing?"
 """
 
-import json
 import logging
 import argparse
 from dataclasses import dataclass
@@ -16,12 +15,10 @@ from pathlib import Path
 
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-import numpy as np
-from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
-INDEX_DIR = Path("data/index")
+INDEX_DIR = Path("data/chromadb")
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -78,7 +75,7 @@ class LongReadRAG:
 
         embedding_fn = SentenceTransformerEmbeddingFunction(model_name=model_name, device="cpu")
 
-        self.collection = client.get_collection(name="longread_papers", embedding_function=embedding_fn)
+        self.collection = client.get_collection(name="longread_papers")
 
         logger.info(f"Loading embedding model: {model_name}")
 
@@ -90,10 +87,14 @@ class LongReadRAG:
             query_texts=[query], n_results=self.top_k, include=["documents", "metadatas", "distances"]
         )
 
+        if results is None:
+            logger.warning("No results returned from ChromaDB query.")
+            return []
+
         chunks = []
         for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
             score = 1 - dist  # convert distance to similarity
-            
+
             chunks.append(
                 RetrievedChunk(
                     text=doc,
@@ -154,10 +155,12 @@ class LongReadRAG:
 
     def _generate_ollama(self, prompt: str, model: str = "llama3.1:8b") -> str:
         """Local LLM via Ollama — free, no API key needed. Run: ollama pull mistral"""
+        import os
         import requests
 
+        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         response = requests.post(
-            "http://localhost:11434/api/generate",
+            f"{host}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False},
         )
         return response.json()["response"]

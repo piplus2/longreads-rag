@@ -12,19 +12,17 @@ Usage:
 import json
 import logging
 import argparse
-import time
 from pathlib import Path
 
-import faiss
 import mlflow
-import numpy as np
+import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-RAW_DIR   = Path("data/raw")
+RAW_DIR = Path("data/raw")
 CHROMA_DIR = Path("data/chromadb")
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -34,6 +32,7 @@ MLFLOW_EXPERIMENT = "longread_rag_indexing"
 
 # ── Load ──────────────────────────────────────────────────────────────────────
 
+
 def load_papers(path: Path) -> list[dict]:
     with open(path) as f:
         papers = json.load(f)
@@ -42,6 +41,7 @@ def load_papers(path: Path) -> list[dict]:
 
 
 # ── Chunk ─────────────────────────────────────────────────────────────────────
+
 
 def build_chunks(
     papers: list[dict],
@@ -74,20 +74,23 @@ def build_chunks(
 
         for split in splits:
             chunks.append(split)
-            metadatas.append({
-                "pmid":     paper["pmid"],
-                "title":    paper["title"],
-                "year":     paper["year"],
-                "authors":  ", ".join(paper.get("authors", [])[:3]),
-                "source":   paper["source"],
-                "has_full": paper.get("has_full_text", False),
-            })
+            metadatas.append(
+                {
+                    "pmid": paper["pmid"],
+                    "title": paper["title"],
+                    "year": paper["year"],
+                    "authors": ", ".join(paper.get("authors", [])[:3]),
+                    "source": paper["source"],
+                    "has_full": paper.get("has_full_text", False),
+                }
+            )
 
     logger.info(f"Created {len(chunks)} chunks from {len(papers)} papers")
     return chunks, metadatas
 
 
 # ── ChromaDB ──────────────────────────────────────────────────────────────────
+
 
 def get_collection(model_name: str, reset: bool = False):
     """
@@ -132,9 +135,9 @@ def upsert_chunks(
     existing_count = collection.count()
 
     for i in range(0, len(texts), batch_size):
-        batch_texts  = texts[i : i + batch_size]
-        batch_metas  = metadatas[i : i + batch_size]
-        batch_ids    = ids[i : i + batch_size]
+        batch_texts = texts[i : i + batch_size]
+        batch_metas = metadatas[i : i + batch_size]
+        batch_ids = ids[i : i + batch_size]
 
         collection.upsert(
             documents=batch_ids and batch_texts,
@@ -152,19 +155,22 @@ def upsert_chunks(
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 def main(model_name: str, chunk_size: int, chunk_overlap: int, batch_size: int, reset: bool) -> None:
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
     with mlflow.start_run():
         # Log params
-        mlflow.log_params({
-            "model_name":    model_name,
-            "chunk_size":    chunk_size,
-            "chunk_overlap": chunk_overlap,
-            "batch_size": batch_size,
-            "reset": reset,
-            "backend": "chromadb",
-        })
+        mlflow.log_params(
+            {
+                "model_name": model_name,
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+                "batch_size": batch_size,
+                "reset": reset,
+                "backend": "chromadb",
+            }
+        )
 
         papers = load_papers(RAW_DIR / "papers.json")
         mlflow.log_metric("n_papers", len(papers))
@@ -175,7 +181,7 @@ def main(model_name: str, chunk_size: int, chunk_overlap: int, batch_size: int, 
 
         collection = get_collection(model_name, reset)
         new_chunks = upsert_chunks(collection, chunks, metadatas, ids=None, batch_size=batch_size)
-        
+
         mlflow.log_metric("new_chunks", new_chunks)
         mlflow.log_metric("total_in_index", collection.count())
 
@@ -184,10 +190,10 @@ def main(model_name: str, chunk_size: int, chunk_overlap: int, batch_size: int, 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model",         default="BAAI/bge-small-en-v1.5")
-    parser.add_argument("--chunk_size",    type=int, default=2000)
+    parser.add_argument("--model", default="BAAI/bge-small-en-v1.5")
+    parser.add_argument("--chunk_size", type=int, default=2000)
     parser.add_argument("--chunk_overlap", type=int, default=150)
-    parser.add_argument("--batch_size",    type=int, default=256)
-    parser.add_argument("--reset",         action="store_true", help="Delete and recreate the
+    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--reset", action="store_true", help="Delete and recreate the collection before indexing")
     args = parser.parse_args()
     main(args.model, args.chunk_size, args.chunk_overlap, args.batch_size, args.reset)

@@ -9,12 +9,13 @@ Usage:
 """
 
 import os
+import re
+
 import time
 import json
 import logging
 import argparse
 from pathlib import Path
-from typing import Optional
 
 from Bio import Entrez
 
@@ -38,13 +39,16 @@ RAW_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── PubMed: fetch abstracts ───────────────────────────────────────────────────
 
-def search_pubmed(query: str, max_results: int = 3000) -> list[str]:
+
+def search_pubmed(query: str, max_results: int = 3000) -> list[str] | None:
     """Return list of PubMed IDs matching query."""
     logger.info(f"Searching PubMed for: {query[:80]}...")
-    handle = Entrez.esearch(db="pubmed", term=query, retmax=max_results, usehistory="y")
-    record = Entrez.read(handle)
-    handle.close()
-    pmids = record["IdList"]
+    with Entrez.esearch(db="pubmed", term=query, retmax=max_results, usehistory="y") as handle:
+        record = Entrez.read(handle)
+    if not record:
+        logger.warning("No records found in PubMed search.")
+        return None
+    pmids: list[str] = record["IdList"]  # type: ignore
     logger.info(f"Found {len(pmids)} PubMed IDs")
     return pmids
 
@@ -67,11 +71,11 @@ def fetch_europe_pmc(
     while len(papers) < max_results:
         url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
         params = {
-            "query":      query,
-            "format":     "json",
-            "pageSize":   page_size,
+            "query": query,
+            "format": "json",
+            "pageSize": page_size,
             "cursorMark": cursor_mark,
-            "resultType": "core",   # includes abstracts
+            "resultType": "core",  # includes abstracts
         }
         try:
             resp = requests.get(url, params=params, timeout=15)
@@ -94,20 +98,19 @@ def fetch_europe_pmc(
             pmid = str(item.get("pmid", ""))
             epmc_id = f"epmc_{item.get('id', '')}"
 
-            papers.append({
-                "pmid":          pmid if pmid else epmc_id,
-                "pmc_id":        item.get("pmcid"),
-                "title":         item.get("title", ""),
-                "abstract":      abstract,
-                "full_text":     None,
-                "authors":       [
-                    a.get("fullName", "")
-                    for a in item.get("authorList", {}).get("author", [])[:5]
-                ],
-                "year":          str(item.get("pubYear", "")),
-                "source":        "europe_pmc",
-                "has_full_text": False,
-            })
+            papers.append(
+                {
+                    "pmid": pmid if pmid else epmc_id,
+                    "pmc_id": item.get("pmcid"),
+                    "title": item.get("title", ""),
+                    "abstract": abstract,
+                    "full_text": None,
+                    "authors": [a.get("fullName", "") for a in item.get("authorList", {}).get("author", [])[:5]],
+                    "year": str(item.get("pubYear", "")),
+                    "source": "europe_pmc",
+                    "has_full_text": False,
+                }
+            )
 
         next_cursor = data.get("nextCursorMark")
         if not next_cursor or next_cursor == cursor_mark:
@@ -119,7 +122,12 @@ def fetch_europe_pmc(
     return papers
 
 
-def fetch_biorxiv(query: str = "long-read sequencing", start_date: str = "2020-01-01", end_date: str = "2025-04-01", max_results: int = 1000) -> list[dict]:
+def fetch_biorxiv(
+    query: str = "long-read sequencing",
+    start_date: str = "2020-01-01",
+    end_date: str = "2025-04-01",
+    max_results: int = 1000,
+) -> list[dict]:
     import requests
 
     logger.info(f"Fetching bioRxiv preprints for: {query}")
@@ -135,7 +143,7 @@ def fetch_biorxiv(query: str = "long-read sequencing", start_date: str = "2020-0
         except Exception as e:
             logger.warning(f"bioRxiv request failed: {e}")
             break
-        
+
         collection = data.get("collection", [])
         if not collection:
             break
@@ -145,17 +153,19 @@ def fetch_biorxiv(query: str = "long-read sequencing", start_date: str = "2020-0
             if not abstract:
                 continue
 
-            papers.append({
-                "pmid":          f"biorxiv_{item['doi'].replace('/', '_')}",
-                "pmc_id":        None,
-                "title":         item.get("title", ""),
-                "abstract":      abstract,
-                "full_text":     None,
-                "authors":       [a.strip() for a in item.get("authors", "").split(";")],
-                "year":          item.get("date", "")[:4],
-                "source":        "biorxiv",
-                "has_full_text": False,
-            })
+            papers.append(
+                {
+                    "pmid": f"biorxiv_{item['doi'].replace('/', '_')}",
+                    "pmc_id": None,
+                    "title": item.get("title", ""),
+                    "abstract": abstract,
+                    "full_text": None,
+                    "authors": [a.strip() for a in item.get("authors", "").split(";")],
+                    "year": item.get("date", "")[:4],
+                    "source": "biorxiv",
+                    "has_full_text": False,
+                }
+            )
 
         total = data.get("messages", [{}])[0].get("count", 0)
         logger.info(f"  cursor={cursor}, collected so far={len(papers)}, total in range={total}")
@@ -179,13 +189,14 @@ def fetch_abstracts(pmids: list[str], batch_size: int = 200) -> list[dict]:
     for i in range(0, len(pmids), batch_size):
         batch = pmids[i : i + batch_size]
         logger.info(f"Fetching abstracts {i}–{i + len(batch)}")
-        handle = Entrez.efetch(
-            db="pubmed", id=",".join(batch), rettype="xml", retmode="xml"
-        )
-        records = Entrez.read(handle)
-        handle.close()
+        with Entrez.efetch(db="pubmed", id=",".join(batch), rettype="xml", retmode="xml") as handle:
+            records = Entrez.read(handle)
 
-        for article in records["PubmedArticle"]:
+        if records is None or "PubmedArticle" not in records:  # type: ignore
+            logger.warning("No records found in PubMed fetch.")
+            continue
+
+        for article in records.get("PubmedArticle", []):  # type: ignore
             try:
                 medline = article["MedlineCitation"]
                 art = medline["Article"]
@@ -214,16 +225,18 @@ def fetch_abstracts(pmids: list[str], batch_size: int = 200) -> list[dict]:
                         pmc_id = str(id_obj)
 
                 if abstract:  # skip papers with no abstract
-                    papers.append({
-                        "pmid": pmid,
-                        "pmc_id": pmc_id,
-                        "title": title,
-                        "abstract": abstract,
-                        "authors": authors,
-                        "year": year,
-                        "source": "pubmed",
-                        "has_full_text": False,
-                    })
+                    papers.append(
+                        {
+                            "pmid": pmid,
+                            "pmc_id": pmc_id,
+                            "title": title,
+                            "abstract": abstract,
+                            "authors": authors,
+                            "year": year,
+                            "source": "pubmed",
+                            "has_full_text": False,
+                        }
+                    )
             except Exception as e:
                 logger.warning(f"Skipping article: {e}")
 
@@ -234,6 +247,7 @@ def fetch_abstracts(pmids: list[str], batch_size: int = 200) -> list[dict]:
 
 
 # ── PMC: fetch full text ──────────────────────────────────────────────────────
+
 
 def fetch_full_text(papers: list[dict], batch_size: int = 50) -> list[dict]:
     """
@@ -251,16 +265,16 @@ def fetch_full_text(papers: list[dict], batch_size: int = 50) -> list[dict]:
         logger.info(f"  Full text batch {i}–{i + len(batch)}")
 
         try:
-            handle = Entrez.efetch(
-                db="pmc", id=",".join(pmc_ids), rettype="xml", retmode="xml"
-            )
-            raw = handle.read()
-            handle.close()
+            with Entrez.efetch(db="pmc", id=",".join(pmc_ids), rettype="xml", retmode="xml") as handle:
+                raw = handle.read()
+
+            if not raw:
+                logger.warning("No data returned for PMC full text fetch.")
+                continue
 
             # Simple extraction: pull all <p> text from XML
             # For production, use a proper PMC XML parser
-            import re
-            paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", raw.decode("utf-8"), re.DOTALL)
+            paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", raw.decode("utf-8"), re.DOTALL)  # type: ignore
             clean = [re.sub(r"<[^>]+>", "", p).strip() for p in paragraphs]
             full_text = " ".join(t for t in clean if len(t) > 50)
 
@@ -286,6 +300,7 @@ def fetch_full_text(papers: list[dict], batch_size: int = 50) -> list[dict]:
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 
+
 def save(papers: list[dict], path: Path) -> None:
     with open(path, "w") as f:
         json.dump(papers, f, indent=2)
@@ -294,8 +309,12 @@ def save(papers: list[dict], path: Path) -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 def main(query: str, max_results: int, fetch_full: bool, include_europe_pmc: bool) -> None:
     pmids = search_pubmed(query, max_results)
+    if not pmids:
+        logger.error("No PubMed IDs found, exiting.")
+        return
     papers = fetch_abstracts(pmids)
 
     if fetch_full:
@@ -320,8 +339,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--query", default=PUBMED_QUERY)
     parser.add_argument("--max_results", type=int, default=3000)
-    parser.add_argument("--fetch_full", action="store_true",
-                        help="Also fetch full text from PMC where available")
+    parser.add_argument("--fetch_full", action="store_true", help="Also fetch full text from PMC where available")
     parser.add_argument("--include_europe_pmc", action="store_true", help="Also fetch preprints from Europe PMC")
     args = parser.parse_args()
     main(args.query, args.max_results, args.fetch_full, args.include_europe_pmc)
