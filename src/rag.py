@@ -93,7 +93,8 @@ class LongReadRAG:
 
         chunks = []
         for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
-            score = 1 - dist  # convert distance to similarity
+            
+            score = max(0.0, min(1.0, 1 - (dist / 2)))
 
             chunks.append(
                 RetrievedChunk(
