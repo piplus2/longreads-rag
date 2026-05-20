@@ -4,6 +4,8 @@ A Retrieval-Augmented Generation system for querying the long-read sequencing sc
 Fetches papers from PubMed, PMC, and Europe PMC, builds a ChromaDB vector index, and answers natural
 language questions grounded in the literature with source citations.
 
+![screenshot](assets/screenshot.png)
+
 ## Architecture
 
 ```
