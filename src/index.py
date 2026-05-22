@@ -92,7 +92,7 @@ def build_chunks(
 # ── ChromaDB ──────────────────────────────────────────────────────────────────
 
 
-def get_collection(model_name: str, reset: bool = False):
+def get_collection(model_name: str, reset: bool = False, device: str = "cpu"):
     """
     Get or create a ChromaDB collection.
     If reset=True, deletes and recreates the collection.
@@ -101,7 +101,7 @@ def get_collection(model_name: str, reset: bool = False):
 
     embedding_fn = SentenceTransformerEmbeddingFunction(
         model_name=model_name,
-        device="cpu",
+        device=device,
     )
 
     if reset:
@@ -124,7 +124,6 @@ def upsert_chunks(
     collection,
     texts: list[str],
     metadatas: list[dict],
-    ids: list[str],
     batch_size: int = 256,
 ) -> int:
     """
@@ -133,6 +132,8 @@ def upsert_chunks(
     Returns number of new chunks added.
     """
     existing_count = collection.count()
+
+    ids = [f"{meta['pmid']}_{idx}" for idx, meta in enumerate(metadatas)]
 
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i : i + batch_size]
@@ -156,7 +157,7 @@ def upsert_chunks(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
-def main(model_name: str, chunk_size: int, chunk_overlap: int, batch_size: int, reset: bool) -> None:
+def main(model_name: str, chunk_size: int, chunk_overlap: int, batch_size: int, reset: bool, device: str) -> None:
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
     with mlflow.start_run():
@@ -179,8 +180,8 @@ def main(model_name: str, chunk_size: int, chunk_overlap: int, batch_size: int, 
         chunks, metadatas = build_chunks(papers, chunk_size, chunk_overlap)
         mlflow.log_metric("n_chunks", len(chunks))
 
-        collection = get_collection(model_name, reset)
-        new_chunks = upsert_chunks(collection, chunks, metadatas, ids=None, batch_size=batch_size)
+        collection = get_collection(model_name, reset, device)
+        new_chunks = upsert_chunks(collection, chunks, metadatas, batch_size=batch_size)
 
         mlflow.log_metric("new_chunks", new_chunks)
         mlflow.log_metric("total_in_index", collection.count())
@@ -195,5 +196,6 @@ if __name__ == "__main__":
     parser.add_argument("--chunk_overlap", type=int, default=150)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--reset", action="store_true", help="Delete and recreate the collection before indexing")
+    parser.add_argument("--device", default="cpu", help="Device to use for embeddings", choices=["cpu", "cuda"])
     args = parser.parse_args()
-    main(args.model, args.chunk_size, args.chunk_overlap, args.batch_size, args.reset)
+    main(args.model, args.chunk_size, args.chunk_overlap, args.batch_size, args.reset, args.device)
