@@ -73,8 +73,6 @@ class LongReadRAG:
         logger.info("Loading ChromaDB index...")
         client = chromadb.PersistentClient(path=str(INDEX_DIR))
 
-        embedding_fn = SentenceTransformerEmbeddingFunction(model_name=model_name, device="cpu")
-
         self.collection = client.get_collection(name="longread_papers")
 
         logger.info(f"Loading embedding model: {model_name}")
