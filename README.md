@@ -45,11 +45,11 @@ python -m src.fetch --fetch_full
 # Optionally include Europe PMC papers (adds ~1000 more)
 python -m src.fetch --fetch_full --include_europe_pmc
 
-# 5. Build the ChromaDB index (tracked in MLflow)
-python -m src.index
+# 5. Build the ChromaDB index (tracked in MLflow) using the selected device "cpu" or "cuda"
+python -m src.index --device cuda
 
 # Re-index from scratch (drops and recreates the collection)
-python -m src.index --reset
+python -m src.index --reset --device cuda
 
 # 6. Try a query from the CLI
 python -m src.rag --query "What are the main error modes of Oxford Nanopore sequencing?"
