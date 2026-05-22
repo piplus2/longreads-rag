@@ -58,6 +58,9 @@ python -m src.rag --query "What are the main error modes of Oxford Nanopore sequ
 uvicorn app.main:app --reload
 
 # 8. Start the frontend (separate terminal)
+npm create vite@latest frontend -- --template react
+# Replace the App.jsx from frontend/src
+# then start the frontend
 cd frontend && npm install && npm run dev
 # Open http://localhost:5173
 
