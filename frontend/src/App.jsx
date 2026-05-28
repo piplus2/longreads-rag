@@ -69,36 +69,6 @@ const EXAMPLE_QUERIES = [
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-// Then in the Spinner component show position
-function Spinner({ position }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 20,
-        padding: "40px 0",
-      }}>
-      <div
-        style={{
-          width: 36,
-          height: 36,
-          border: "3px solid #1e293b",
-          borderTop: "3px solid #3b82f6",
-          borderRadius: "50%",
-          animation: "spin 0.8s linear infinite",
-        }}
-      />
-      <span style={{ color: "#475569", fontSize: 13, fontFamily: "monospace" }}>
-        {position > 0
-          ? `${position} quer${position === 1 ? "y" : "ies"} ahead of yours…`
-          : "retrieving · embedding · generating"}
-      </span>
-    </div>
-  );
-}
-
 function ScoreBar({ score }) {
   const pct = Math.round(score * 100);
   const color = score > 0.85 ? "#4ade80" : score > 0.7 ? "#facc15" : "#94a3b8";
@@ -263,7 +233,8 @@ function AnswerBlock({ text, visible }) {
   );
 }
 
-function Spinner() {
+// Then in the Spinner component show position
+function Spinner({ position }) {
   return (
     <div
       style={{
@@ -284,7 +255,9 @@ function Spinner() {
         }}
       />
       <span style={{ color: "#475569", fontSize: 13, fontFamily: "monospace" }}>
-        retrieving · embedding · generating
+        {position > 0
+          ? `${position} quer${position === 1 ? "y" : "ies"} ahead of yours…`
+          : "retrieving · embedding · generating"}
       </span>
     </div>
   );
@@ -319,15 +292,15 @@ export default function App() {
     return () => clearInterval(interval);
   }, [loading]);
 
-  // useEffect(() => {
-  //   if (result) {
-  //     setTimeout(() => setAnswerVisible(true), 100);
-  //     setTimeout(() => setSourcesVisible(true), 400);
-  //   } else {
-  //     setAnswerVisible(false);
-  //     setSourcesVisible(false);
-  //   }
-  // }, [result]);
+  useEffect(() => {
+    if (result) {
+      setTimeout(() => setAnswerVisible(true), 100);
+      setTimeout(() => setSourcesVisible(true), 400);
+    } else {
+      setAnswerVisible(false);
+      setSourcesVisible(false);
+    }
+  }, [result]);
 
   const submit = async (q = query) => {
     if (!q.trim()) return;
