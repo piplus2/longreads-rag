@@ -12,8 +12,10 @@ Endpoints:
     GET  /stats        — index stats
 """
 
+import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
@@ -41,6 +43,11 @@ app.add_middleware(
 )
 
 MLFLOW_EXPERIMENT = "longread_rag_queries"
+request_queue = asyncio.Queue()
+active_queries = 0
+MAX_CONCURRENT = 2
+
+executor = ThreadPoolExecutor(max_workers=4)
 
 
 # ── Lazy-load the RAG pipeline (expensive to initialise) ──────────────────────
@@ -92,6 +99,15 @@ class StatsResponse(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
+@app.get("/queue")
+async def queue_status():
+    return {
+        "queued": request_queue.qsize(),
+        "active": active_queries,
+        "message": f"{request_queue.qsize()} queries waiting",
+    }
+
+
 @app.get("/health", response_model=HealthResponse)
 def health():
     index_ready = Path("data/chromadb").exists()
@@ -110,7 +126,7 @@ def stats():
 
 
 @app.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest):
+async def ask(request: AskRequest):
     rag = get_rag()
 
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
@@ -123,7 +139,9 @@ def ask(request: AskRequest):
         try:
             # Override top_k per request if specified
             rag.top_k = request.top_k
-            response: RAGResponse = rag.ask(request.query)
+
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(executor, lambda: rag.ask(request.query))
         except Exception as e:
             logger.error(f"RAG error: {e}")
             raise HTTPException(status_code=500, detail=str(e))
