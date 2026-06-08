@@ -14,6 +14,7 @@ pydantic>=2.7
 # anthropic>=0.28  # uncomment if using Anthropic
 # openai>=1.30     # uncomment if using OpenAI
 requests>=2.32     # needed for ollama
+langchain-text-splitters >= 1.1.1
 
 # Experiment tracking
 mlflow>=2.13
